@@ -28,6 +28,12 @@
             when 4 then 'desktop_license_annual_updates'
             when 5 then 'desktop_license_lifetime_updates'
         end as conversion_sku,
+        initcap(
+            regexp_substr(
+                conversion_sku, 'subscription|license'
+            )
+        ) as conversion_sku_type,
+        conv_term
 
 
 
