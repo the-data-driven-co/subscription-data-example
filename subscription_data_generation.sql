@@ -20,7 +20,9 @@
             when 5 then 'Amazon Pay'
         end as conversion_payment_processor,
         dateadd(day,-zipf(.03,1096,random()),'2021-12-31') as customer_created,
-        customer_created as conversion_date
+        customer_created::date as conversion_date,
+
+
 
 
 
