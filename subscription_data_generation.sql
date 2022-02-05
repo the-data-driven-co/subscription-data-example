@@ -33,7 +33,21 @@
                 conversion_sku, 'subscription|license'
             )
         ) as conversion_sku_type,
-        conv_term
+        case conversion_sku_type
+            when 'subscription' then
+                case zipf(1,3)
+                    when 1 then 'monthly_billing'
+                    when 2 then 'annual_billing'
+                    when 3 then '30d_trial_monthly_billing'
+        conv_term,
+        conv_term as extended_term,
+        regexp_substr(conversion_sku,'(suite|cloud|desktop)') as conversion_main_item,
+        case conversion_main_item
+            when 'suite' then array_construct('cloud','desktop')
+            else array_construct(conversion_main_item)
+        end as conversion_all_items, 
+
+
 
 
 
