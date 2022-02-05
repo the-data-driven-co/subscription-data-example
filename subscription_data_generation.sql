@@ -52,14 +52,16 @@
             '999-999-9999'
         ) as phone,
         decode(left(traffic_source,1),
-               regexp_substr(traffic_source,'[0-9]'), 'Paid Media',
-               regexp_substr(traffic_source,'[A-D]'), 'Paid Search',
-               regexp_substr(traffic_source,'[E-L]'), 'SEO',
-               regexp_substr(traffic_source,'[M-S]'), 'Affiliate',
-               regexp_substr(traffic_source,'[T-V]'), 'Referral',
-               regexp_substr(traffic_source,'[W-Z]'), 'Organic',
-               NULL, 'Organic'
-           ) as traffic_category
+            regexp_substr(traffic_source,'[0-9]'), 'Paid Media',
+            regexp_substr(traffic_source,'[A-D]'), 'Paid Search',
+            regexp_substr(traffic_source,'[E-L]'), 'SEO',
+            regexp_substr(traffic_source,'[M-S]'), 'Affiliate',
+            regexp_substr(traffic_source,'[T-V]'), 'Referral',
+            regexp_substr(traffic_source,'[W-Z]'), 'Organic',
+            NULL, 'Organic'
+        ) as traffic_category,
+        
+
 
 
     from table(generator(rowcount => 100)) as customer_id
