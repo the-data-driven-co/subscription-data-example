@@ -1,24 +1,24 @@
 --create table customer_data as (
     select
-        row_number() over (order by seq4())::number as customer_id,
-        case zipf(5,3,random())
-            when 1 then 'Active'
-            when 2 then 'Locked'
-            when 3 then 'Disabled'
-        end as customer_status,
-        case zipf(1.5,3,random())
-            when 1 then 'Snowflake'
-            when 2 then 'Tableau'
-            when 3 then 'DataRobot'
-        end as brand,
-        upper(randstr(4,zipf(.5,40,random()))) as traffic_source,
-        case zipf(1, 5, random())
-            when 1 then 'Credit Card'
-            when 2 then 'Paypal'
-            when 3 then 'Apple iTunes'
-            when 4 then 'Google Play'
-            when 5 then 'Amazon Pay'
-        end as conversion_payment_processor,
+        row_number() over (order by seq4())::number as customer_id,  --table function, sequence
+        decode(zipf(5,3,random()), --zipf, random, decode
+            1, 'Active',
+            2, 'Locked',
+            3, 'Disabled'
+        ) as customer_status,
+        decode(zipf(1.5,3,random()),
+            1, 'Snowflake',
+            2, 'Tableau',
+            3, 'DataRobot'
+        ) as brand,
+        upper(randstr(4,zipf(.5,40,random()))) as traffic_source, --upper, randstr
+        decode(zipf(1, 5, random()),
+            1, 'Credit Card',
+            2, 'Paypal',
+            3, 'Apple iTunes',
+            4, 'Google Play',
+            5, 'Amazon Pay'
+        ) as conversion_payment_processor,
         dateadd(day,-zipf(.03,1096,random()),'2021-12-31') as customer_created,
         customer_created::date as conversion_date,
         decode(zipf(2,5,random()),
@@ -60,7 +60,7 @@
             regexp_substr(traffic_source,'[W-Z]'), 'Organic',
             NULL, 'Organic'
         ) as traffic_category,
-        
+
 
 
 
