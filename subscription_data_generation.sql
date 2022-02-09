@@ -47,32 +47,28 @@ customers_gen as (
             regexp_substr(traffic_source,'[T-V]'), 'referral',
             regexp_substr(traffic_source,'[W-Z]'), 'organic',
             NULL, 'organic'
-        ) as traffic_category
-    from table(generator(rowcount => 100000))
-),
-
-initial_orders as (
-    select
-        customers_gen.*,
+        ) as traffic_category,
+        customer_created::date as conversion_date,
+        zipf(1,10,random()) as conversion_sku_id,
         decode(zipf(1, 5, random()),
             1, 'credit_card',
             2, 'paypal',
             3, 'apple_itunes',
             4, 'google_play',
             5, 'amazon_pay'
-        ) as conversion_payment_processor,
-        customer_created::date as conversion_date,
-        'manual' as order_type,
-        0 as cycle,
-        zipf(1,(select count(*) from skus),random()) as conversion_sku_id
+        ) as conversion_payment_processor
+    from table(generator(rowcount => 100000))
 ),
 
-transactions as (
-
-        concat_ws('_',skus.category,skus.short_desc) as sku,
-        skus.category as sku_type,
-        skus.all_items[0]::varchar as main_item,
-        skus.all_items,
+initial_orders as (
+    select
+        customers_gen.*,
+        'manual' as order_type,
+        0 as cycle,
+        concat_ws('_',skus.category,skus.short_desc) as conversion_sku,
+        skus.category as conversion_sku_type,
+        skus.all_items[0]::varchar as conv_main_item,
+        skus.all_items conv_all_items,
         concat(
             iff(
                 skus.initial_purchase_price < skus.recurring_price,
@@ -84,20 +80,55 @@ transactions as (
                 skus.recurring_price*skus.recurring_qty,
                 skus.category
             )
-        ) as term,
-        term as extended_term
-from
-    customers_gen
-    left join skus
-        on (select zipf(1,(select count(*) from skus),random())) = skus.id
-)
+        ) as conv_term,
+        conv_term as conv_extended_term,
+        conversion_sku_id as sku_id,
+        conversion_sku as sku,
+        conversion_sku_type as sku_type,
+        conv_term as term,
+        conv_extended_term as extended_term,
+        conv_main_item as main_item,
+        conv_all_items as all_items
 
-select *
+    from customers_gen
+         join skus on skus.id = customers_gen.conversion_sku_id
+)--,
 
-from
-    initial_orders_gen
-;
-,
+-- initial_subscriptions as (
+    select initial_orders.*,
+        case when recurring_price is not null then seq4() end as subscription_id,
+        case when recurring_price is not null then conversion_date end as subscription_created,
+        zipf(.9,24,random())-1 as max_cycle,
+        case initial_purchase_unit
+            when 'day'
+                then dateadd(day,initial_purchase_qty,subscription_created)
+            when 'month'
+                then dateadd(month,initial_purchase_qty,subscription_created)
+            when 'year'
+                then dateadd(year,initial_purchase_qty,subscription_created)
+        end as sub_tree_first_rebill_date,
+        case recurring_unit
+            when 'day'
+                then dateadd(day,recurring_qty*max_cycle,sub_tree_first_rebill_date)
+            when 'month'
+                then dateadd(month,recurring_qty*max_cycle,sub_tree_first_rebill_date)
+            when 'year'
+                then dateadd(year,recurring_qty,sub_tree_first_rebill_date)
+         end as subscription_canceled,
+         case
+            when subscription_canceled < current_date then 'cancelled'
+            when subscription_canceled >= current_date then 'active'
+            when recurring_unit is not null then 'active'
+         end as subscription_status,
+         subscription_id as sub_tree_id,
+         subscription_created as sub_tree_created,
+         subscription_canceled as sub_tree_canceled,
+
+
+    from initial_orders
+         join skus
+           on skus.id = initial_orders.sku_id;
+
 
 column_fills as (
 select *,
@@ -128,7 +159,17 @@ select *,
 --order
     row_number() over (order by transaction_created) as order_id,
     'complete' as order_status,
-    0 as sku_amount,
+    0 as sku_amount
+-- subscription
+    null:varchar as first_sub_cancel_annotation,
+    null::varchar as "Cancel Agent: First",
+    null::varchar as last_sub_cancel_annotation,
+    null::varchar as "Cancel Agent: Last",
+    current_timestamp() as sub_created_dt,
+    current_timestamp() as sub_canceled_dt,
+    current_timestamp() as sub_tree_created_dt,
+    current_timestamp() as sub_tree_canceled_dt
+
 
 from final
 )
