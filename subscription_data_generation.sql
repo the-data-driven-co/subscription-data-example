@@ -64,7 +64,6 @@ initial_orders as (
     select
         customers_gen.*,
         'manual' as order_type,
-        0 as cycle,
         concat_ws('_',skus.category,skus.short_desc) as conversion_sku,
         skus.category as conversion_sku_type,
         skus.all_items[0]::varchar as conv_main_item,
@@ -76,7 +75,7 @@ initial_orders as (
                 ''
             ),
             concat_ws('-',
-                skus.initial_purchase_qty||left(skus.initial_purchase_unit,1),
+                skus.recurring_qty||left(skus.recurring_unit,1),
                 skus.recurring_price*skus.recurring_qty,
                 skus.category
             )
@@ -92,13 +91,13 @@ initial_orders as (
 
     from customers_gen
          join skus on skus.id = customers_gen.conversion_sku_id
-)--,
+),
 
--- initial_subscriptions as (
+initial_subscriptions as (
     select initial_orders.*,
         case when recurring_price is not null then seq4() end as subscription_id,
         case when recurring_price is not null then conversion_date end as subscription_created,
-        zipf(.9,24,random())-1 as max_cycle,
+        case when recurring_price is not null then zipf(.9,24,random())-1 else 0 end as max_cycle,
         case initial_purchase_unit
             when 'day'
                 then dateadd(day,initial_purchase_qty,subscription_created)
@@ -113,7 +112,7 @@ initial_orders as (
             when 'month'
                 then dateadd(month,recurring_qty*max_cycle,sub_tree_first_rebill_date)
             when 'year'
-                then dateadd(year,recurring_qty,sub_tree_first_rebill_date)
+                then dateadd(year,recurring_qty*max_cycle,sub_tree_first_rebill_date)
          end as subscription_canceled,
          case
             when subscription_canceled < current_date then 'cancelled'
@@ -123,12 +122,42 @@ initial_orders as (
          subscription_id as sub_tree_id,
          subscription_created as sub_tree_created,
          subscription_canceled as sub_tree_canceled,
-
-
+         case when recurring_unit is not null then 'new' end as sub_tree_type,
+         sub_tree_type as subscription_type
     from initial_orders
          join skus
-           on skus.id = initial_orders.sku_id;
+           on skus.id = initial_orders.sku_id
+),
 
+transactions as (
+    select
+        initial_subscriptions.*,
+        cycle,
+        case cycle
+            when 0 then initial_purchase_price
+            else recurring_price
+        end as itemized_transaction_amount,
+        case
+            when cycle = 0 then customer_created
+            when recurring_unit = 'day'
+                then dateadd(day,recurring_qty*cycle-1,sub_tree_first_rebill_date)
+            when recurring_unit = 'month'
+                then dateadd(month,recurring_qty*cycle-1,sub_tree_first_rebill_date)
+            when recurring_unit = 'year'
+                then dateadd(year,recurring_qty*cycle-1,sub_tree_first_rebill_date)
+        end as transaction_created
+
+    from
+        initial_subscriptions
+        left join (
+            select row_number() over (order by null)-1 as cycle
+            from table(generator(rowcount => 24))
+        ) cycles
+               on max_cycle >= cycles.cycle
+        left join skus
+               on skus.id = sku_id
+
+),
 
 column_fills as (
 select *,
@@ -159,7 +188,7 @@ select *,
 --order
     row_number() over (order by transaction_created) as order_id,
     'complete' as order_status,
-    0 as sku_amount
+    0 as sku_amount,
 -- subscription
     null:varchar as first_sub_cancel_annotation,
     null::varchar as "Cancel Agent: First",
@@ -168,10 +197,29 @@ select *,
     current_timestamp() as sub_created_dt,
     current_timestamp() as sub_canceled_dt,
     current_timestamp() as sub_tree_created_dt,
-    current_timestamp() as sub_tree_canceled_dt
-
-
-from final
+    current_timestamp() as sub_tree_canceled_dt,
+    null:varxhar as "Re-Sub Affiliate Name",
+    null:varchar as "Re-Sub Affiliate Code",
+    null:varchar as "Re-Sub Traffic Category",
+    null::number as subscription_parent_id,
+-- transaction
+    order_id as id,
+    'authorization' as type,
+    itemized_transaction_amount as amount,
+    transaction_created as est_billing_date,
+    transaction_created as transaction_timestamp,
+    conversion_payment_processor as transaction_payment_processor,
+    uniform(1000,9999,random()) as card_bin,
+    0 as auth_charge_amount,
+    0 as auth_reversal_amount,
+    0 as auth_total_amount,
+    randstr(10,random()) as litle_message,
+    randstr(4,random()) as "Chargeback Reason Code",
+    'no' as "Chargeback/Fraud",
+    False as "Fraud Flag",
+    null:number parent_id,
+    null:date as parent_est_billing_date
+from transactions
 )
 
 select * from column_fills;
