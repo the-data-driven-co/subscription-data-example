@@ -209,7 +209,7 @@ select *,
     transaction_created as est_billing_date,
     transaction_created as transaction_timestamp,
     conversion_payment_processor as transaction_payment_processor,
-    uniform(1000,9999,random()) as card_bin,
+    uniform(1000,9999,random())::varchar as card_bin,
     0 as auth_charge_amount,
     0 as auth_reversal_amount,
     0 as auth_total_amount,
@@ -217,8 +217,8 @@ select *,
     randstr(4,random()) as "Chargeback Reason Code",
     'no' as "Chargeback/Fraud",
     False as "Fraud Flag",
-    null:number parent_id,
-    null:date as parent_est_billing_date
+    null::number parent_id,
+    null::date as parent_est_billing_date
 from transactions
 )
 
