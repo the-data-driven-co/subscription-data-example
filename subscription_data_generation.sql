@@ -1,3 +1,14 @@
+/*** input parameters ***/
+
+set new_customers = 250000;
+set cross_sell_rate = .25;
+
+/************************/
+
+create function cross_sells_gen() returns table as
+    'select * from ';
+
+
 with
 skus as (
     select
@@ -31,25 +42,25 @@ skus as (
 customers_gen as (
     select
         row_number() over (order by seq4())::number as customer_id,
-        dateadd(day,-zipf(.1,731,random()),'2022-01-01') as acquisition_date,
-        decode(zipf(5,3,random()),
-            1, 'active',
-            2, 'locked',
-            3, 'disabled'
-        ) as customer_status,
         decode(zipf(1.5,3,random()),
             1, 'The Data Driven Co.',
             2, 'iheartdata.co',
             3, 'xiirxiis'
         ) as customer_brand,
+        decode(zipf(5,3,random()),
+            1, 'active',
+            2, 'locked',
+            3, 'disabled'
+        ) as customer_status,
+        dateadd(day,-zipf(.1,731,random()),'2022-01-01') as acquisition_date,
         upper(randstr(4,zipf(.5,40,random()))) as acquisition_traffic_source,
-        decode(left(traffic_source,1),
-            regexp_substr(traffic_source,'[0-9]'), 'paid_media',
-            regexp_substr(traffic_source,'[A-D]'), 'paid_search',
-            regexp_substr(traffic_source,'[E-L]'), 'seo',
-            regexp_substr(traffic_source,'[M-S]'), 'affiliate',
-            regexp_substr(traffic_source,'[T-V]'), 'referral',
-            regexp_substr(traffic_source,'[W-Z]'), 'organic',
+        decode(left(acquisition_traffic_source,1),
+            regexp_substr(acquisition_traffic_source,'[0-9]'), 'paid_media',
+            regexp_substr(acquisition_traffic_source,'[A-D]'), 'paid_search',
+            regexp_substr(acquisition_traffic_source,'[E-L]'), 'seo',
+            regexp_substr(acquisition_traffic_source,'[M-S]'), 'affiliate',
+            regexp_substr(acquisition_traffic_source,'[T-V]'), 'referral',
+            regexp_substr(acquisition_traffic_source,'[W-Z]'), 'organic',
             NULL, 'organic'
         ) as acquisition_traffic_category,
         zipf(.5,14,random()) as acquisition_sku_id,
@@ -66,7 +77,6 @@ customers_gen as (
 initial_orders as (
     select
         customers_gen.*,
-        'manual' as order_type,
         concat_ws('_',skus.category,skus.short_desc) as acquisition_sku,
         skus.category as acquisition_sku_type,
         skus.all_items[0]::varchar as acquisition_sku_main_item,
@@ -77,7 +87,8 @@ initial_orders as (
                 concat_ws('-',
                     skus.initial_purchase_qty||left(skus.initial_purchase_unit,1),
                     skus.initial_purchase_price,
-                    'trial-',
+                    'trial-'
+                ),
                 ''
             ),
             concat_ws('-',
@@ -86,12 +97,14 @@ initial_orders as (
                 skus.category
             )
         ) as acquisition_sku_terms,
-        acquisition_sku_id as sku_id,
-        acquisition_sku as sku,
-        acquisition_sku_type as sku_type,
-        acquisition_sku_terms as sku_terms,
-        acquisition_sku_main_item as sku_main_item,
-        acquisition_sku_all_items as sku_all_items
+        'manual' as order_type,
+        acquisition_sku_id as order_sku_id,
+        acquisition_sku as order_sku,
+        acquisition_sku_type as order_sku_type,
+        acquisition_sku_terms as order_sku_terms,
+        acquisition_sku_main_item as order_sku_main_item,
+        acquisition_sku_all_items as order_sku_all_items
+
 
     from customers_gen
          join skus on skus.id = customers_gen.acquisition_sku_id
@@ -101,7 +114,8 @@ initial_subscriptions as (
     select initial_orders.*,
         case when recurring_price is not null then seq4() end as subscription_id,
         case when recurring_price is not null then acquisition_date end as subscription_created,
-        case when recurring_price is not null then zipf(2,24,random())-1 else 0 end as max_cycle,
+        case when recurring_price is not null then zipf(2,24,random())-1 else 0 end as subscription_max_cycle,
+        case when recurring_price is not null then 'new' end as subscription_type,
         case initial_purchase_unit
             when 'day'
                 then dateadd(day,initial_purchase_qty,subscription_created)
@@ -109,117 +123,121 @@ initial_subscriptions as (
                 then dateadd(month,initial_purchase_qty,subscription_created)
             when 'year'
                 then dateadd(year,initial_purchase_qty,subscription_created)
-        end as subscription_auto_order_start_date,
+        end as subscription_rebill_start_date,
         case recurring_unit
             when 'day'
-                then dateadd(day,recurring_qty*max_cycle,subscription_auto_order_start_date)
+                then dateadd(day,recurring_qty*subscription_max_cycle,subscription_rebill_start_date)
             when 'month'
-                then dateadd(month,recurring_qty*max_cycle,subscription_auto_order_start_date)
+                then dateadd(month,recurring_qty*subscription_max_cycle,subscription_rebill_start_date)
             when 'year'
-                then dateadd(year,recurring_qty*max_cycle,subscription_auto_order_start_date)
+                then dateadd(year,recurring_qty*subscription_max_cycle,subscription_rebill_start_date)
          end as subscription_canceled,
          case
             when subscription_canceled < current_date then 'cancelled'
             when subscription_canceled >= current_date then 'active'
             when recurring_unit is not null then 'active'
-         end as subscription_status,
-         case when recurring_unit is not null then 'new' end as subscription_type,
+         end as subscription_status
+
     from initial_orders
          join skus
-           on skus.id = initial_orders.sku_id
+           on skus.id = initial_orders.order_sku_id
 ),
 
 initial_transactions as (
     select
         initial_subscriptions.*,
-        cycle,
-        case cycle
+        order_cycle,
+        case
+            when order_cycle = 0 then acquisition_date
+            when recurring_unit = 'day'
+                then dateadd(day,recurring_qty*(order_cycle-1),subscription_rebill_start_date)
+            when recurring_unit = 'month'
+                then dateadd(month,recurring_qty*(order_cycle-1),subscription_rebill_start_date)
+            when recurring_unit = 'year'
+                then dateadd(year,recurring_qty*(order_cycle-1),subscription_rebill_start_date)
+        end as transaction_created,
+        case order_cycle
             when 0 then initial_purchase_price
             else recurring_price
-        end as itemized_transaction_amount,
-        case
-            when cycle = 0 then customer_created
-            when recurring_unit = 'day'
-                then dateadd(day,recurring_qty*(cycle-1),sub_tree_first_rebill_date)
-            when recurring_unit = 'month'
-                then dateadd(month,recurring_qty*(cycle-1),sub_tree_first_rebill_date)
-            when recurring_unit = 'year'
-                then dateadd(year,recurring_qty*(cycle-1),sub_tree_first_rebill_date)
-        end as transaction_created
+        end as transaction_amount
 
     from
         initial_subscriptions
         left join (
-            select row_number() over (order by null)-1 as cycle
+            select (row_number() over (order by null))-1 as order_cycle
             from table(generator(rowcount => 24))
         ) cycles
-               on max_cycle >= cycles.cycle
+               on initial_subscriptions.subscription_max_cycle >= cycles.order_cycle
         left join skus
-               on skus.id = sku_id
+               on initial_subscriptions.order_sku_id = skus.id
 
 ),
 
 cross_transactions as (
   select
       customer_id,
-      customer_created,
+      customer_brand,
       customer_status,
-      brand,
-      traffic_source,
-      traffic_category,
       acquisition_date,
+      acquisition_traffic_source,
+      acquisition_traffic_category,
       acquisition_sku_id,
-      acquisition_payment_processor,
-      order_type,
+      acquisition_payment_type,
       acquisition_sku,
       acquisition_sku_type,
-      conv_main_item,
-      conv_all_items,
-      conv_term,
-      conv_extended_term,
-      sku_id,
-      'cross' as sku,
+      acquisition_sku_main_item,
+      acquisition_sku_all_items,
+      acquisition_sku_terms,
+      order_type,
+      order_sku_id,
+      'cross' as order_sku,
       case uniform(1,3,random())
           when 1 then 'Tableau'
           when 2 then 'Power BI'
           when 3 then 'Looker'
-      end as sku_type,
-      term,
-      extended_term,
-      main_item,
-      all_items,
+      end as order_sku_type,
+      order_sku_terms,
+      order_sku_main_item,
+      order_sku_all_items,
       subscription_id+0.1,
       subscription_created,
-      max_cycle,
-      sub_tree_first_rebill_date,
+      subscription_max_cycle,
+      'cross' as subscription_type,
+      subscription_rebill_start_date,
       subscription_canceled,
       subscription_status,
-      sub_tree_id+0.1,
-      sub_tree_created,
-      sub_tree_canceled,
-      'cross' as sub_tree_type,
-      'cross' as subscription_type,
-      cycle,
-      itemized_transaction_amount,
-      transaction_created
+      order_cycle,
+      transaction_created,
+      transaction_amount
+
 from initial_transactions
 order by customer_id
 limit 100000),
 
 transactions as (
+
     select * from initial_transactions
-    union
+    union all
     select * from cross_transactions
+
 ),
 
-final as (
+add_primary_keys as (
 
     select *,
+
         row_number() over (order by transaction_created) as order_id,
         order_id as transaction_id,
         'authorization' as transaction_type
 
-from transactions
+    from transactions
+
+),
+
+final as (
+
+select * from add_primary_keys
+
 )
 
-select * from transactions;
+select * from final;
