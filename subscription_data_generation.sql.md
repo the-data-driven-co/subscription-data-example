@@ -1,13 +1,21 @@
-/*** input parameters ***/
 
+## Input parameters
+
+* Set the number of customers for the simulation.
+
+```sql
 set new_customers = 250000;
+```
+* Set the cross-sell rate.
+
+```sql
 set cross_sell_rate = .125;
+```
+* Calculate cross-sell sales qty.
 
-/************************/
-
---calculate cross-sell sales qty
+```sql
 set cross_sell_count = $new_customers * $cross_sell_rate;
-
+```
 with
 
 skus as (
