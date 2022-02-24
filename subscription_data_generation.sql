@@ -1,16 +1,16 @@
 /*** input parameters ***/
 
 set new_customers = 250000;
-set cross_sell_rate = .25;
+set cross_sell_rate = .125;
 
 /************************/
-
-create function cross_sells_gen() returns table as
-    'select * from ';
-
+--calculate cross-sales qty
+set cross_sell_count = $new_customers * $cross_sell_rate;
 
 with
+
 skus as (
+    -- create some fictitious skus
     select
         row_number() over (order by null) as id,
         $1 as category,
@@ -40,6 +40,8 @@ skus as (
 ),
 
 customers_gen as (
+    -- create fictitious customers with randomly assigned attributes.
+    -- customer count based on `new_customers` input parameter.
     select
         row_number() over (order by seq4())::number as customer_id,
         decode(zipf(1.5,3,random()),
@@ -71,10 +73,11 @@ customers_gen as (
             4, 'google_play',
             5, 'amazon_pay'
         ) as acquisition_payment_type
-    from table(generator(rowcount => 250000))
+    from table(generator(rowcount => $new_customers))
 ),
 
 initial_orders as (
+    -- simulate a first order and order attributes for each customer
     select
         customers_gen.*,
         concat_ws('_',skus.category,skus.short_desc) as acquisition_sku,
@@ -111,6 +114,7 @@ initial_orders as (
 ),
 
 initial_subscriptions as (
+    -- add subscription attributes for recurring skus
     select initial_orders.*,
         case when recurring_price is not null then seq4() end as subscription_id,
         case when recurring_price is not null then acquisition_date end as subscription_created,
@@ -144,6 +148,8 @@ initial_subscriptions as (
 ),
 
 initial_transactions as (
+    -- simulate initial and recurring orders and cross_transactions
+    -- note: transactions are 1:1 with orders in this model
     select
         initial_subscriptions.*,
         order_cycle,
@@ -174,6 +180,7 @@ initial_transactions as (
 ),
 
 cross_transactions as (
+  -- simulate cross-sale orders and transactions
   select
       customer_id,
       customer_brand,
@@ -211,11 +218,11 @@ cross_transactions as (
       transaction_amount
 
 from initial_transactions
-order by customer_id
-limit 100000),
+limit $cross_sell_count
+),
 
 transactions as (
-
+    -- combine initial sales and cross-sales data
     select * from initial_transactions
     union all
     select * from cross_transactions
@@ -223,7 +230,7 @@ transactions as (
 ),
 
 add_primary_keys as (
-
+    -- add unique identifiers for transactions and orders
     select *,
 
         row_number() over (order by transaction_created) as order_id,
@@ -235,8 +242,8 @@ add_primary_keys as (
 ),
 
 final as (
-
-select * from add_primary_keys
+    -- final cte (helpful for debugging)
+    select * from add_primary_keys
 
 )
 
