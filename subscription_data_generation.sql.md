@@ -1,3 +1,4 @@
+# subscription_data_generation.sql
 
 ## Input parameters
 
@@ -16,6 +17,10 @@ set cross_sell_rate = .125;
 ```sql
 set cross_sell_count = $new_customers * $cross_sell_rate;
 ```
+
+## Data generation
+
+```sql
 with
 
 skus as (
@@ -259,3 +264,4 @@ final as (
 )
 
 select * from final;
+```
